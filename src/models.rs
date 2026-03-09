@@ -8,7 +8,8 @@ pub(crate) struct NewsItem {
     pub title: String,
     pub date: String,
     pub detail_url: String,
-    pub content: Option<String>
+    pub is_page: bool,
+    pub content: Option<String>,
 }
 
 pub trait DataSource {
