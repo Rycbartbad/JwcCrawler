@@ -5,7 +5,7 @@ use scraper::{Html, Selector};
 use std::error::Error;
 use std::time::Duration;
 
-pub struct Category {
+struct Category {
     label: String,
     path: String,
     page: i32,
@@ -47,9 +47,9 @@ impl DataSource for Jwc {
     }
 }
 
-pub struct FetchStatus {
-    pub news_items: Vec<NewsItem>,
-    pub has_next_page: bool,
+struct FetchStatus {
+    news_items: Vec<NewsItem>,
+    has_next_page: bool,
 }
 
 impl Jwc {

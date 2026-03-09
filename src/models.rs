@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize)]
 #[derive(Debug)]
-pub(crate) struct NewsItem {
+pub struct NewsItem {
     pub label: String,
     pub title: String,
     pub date: String,
