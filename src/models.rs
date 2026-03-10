@@ -9,8 +9,16 @@ pub struct NewsItem {
     pub date: String,
     pub detail_url: String,
     pub is_page: bool,
-    pub content: Option<String>,
+    pub content: Option<Content>,
 }
+
+#[derive(Deserialize, Serialize)]
+#[derive(Debug)]
+pub struct Content {
+    pub text: String,
+    pub attachment_urls: Vec<String>,
+}
+
 
 pub trait DataSource {
     fn fetch(&mut self) -> Result<Vec<NewsItem>, Box<dyn Error>>;

@@ -1,9 +1,10 @@
-use crate::models::{DataSource, NewsItem};
+use crate::models::{Content, DataSource, NewsItem};
 use rayon::prelude::*;
 use reqwest::blocking::Client;
-use scraper::{Html, Selector};
+use scraper::{ElementRef, Html, Node, Selector};
 use std::error::Error;
 use std::time::Duration;
+use url::Url;
 
 struct Category {
     label: String,
@@ -15,6 +16,7 @@ pub struct Jwc {
     base_url: String,
     categories: Vec<Category>,
     client: Client,
+    attachment_extensions: Vec<String>,
 }
 
 impl DataSource for Jwc {
@@ -27,7 +29,13 @@ impl DataSource for Jwc {
         for category in &mut self.categories {
             while !category.end_reached {
                 let current_page = category.page;
-                let status = Self::fetch_pages(base_url, client, category, current_page)?;
+                let status = Self::fetch_pages(
+                    base_url,
+                    client,
+                    category,
+                    &self.attachment_extensions,
+                    current_page,
+                )?;
 
                 if status.news_items.is_empty() {
                     category.end_reached = true;
@@ -52,6 +60,35 @@ struct FetchStatus {
     has_next_page: bool,
 }
 
+fn get_pretty_text(element: ElementRef) -> String {
+    let mut text = String::new();
+
+    for node in element.children() {
+        match node.value() {
+            // 如果是文本节点，直接追加
+            Node::Text(t) => {
+                text.push_str(t);
+            }
+            // 如果是元素节点，递归处理并根据标签名加换行
+            Node::Element(e) => {
+                let tag_name = e.name();
+                let child_ref = ElementRef::wrap(node).unwrap();
+                let child_text = get_pretty_text(child_ref);
+
+                match tag_name {
+                    "p" | "div" | "tr" | "br" | "h1" | "h2" | "h3" => {
+                        text.push('\n');
+                        text.push_str(&child_text);
+                        text.push('\n');
+                    }
+                    _ => text.push_str(&child_text), // span, a, b 等行内元素不换行
+                }
+            }
+            _ => {}
+        }
+    }
+    text
+}
 impl Jwc {
     pub fn new() -> Result<Self, Box<dyn Error>> {
         Ok(Self {
@@ -104,6 +141,10 @@ impl Jwc {
                 .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
                 .timeout(Duration::from_secs(10))
                 .build()?,
+            attachment_extensions: [".pdf", ".docx", ".doc", ".xlsx", ".xls", ".zip", ".rar"]
+                .iter()
+                .map(|x| x.to_string())
+                .collect(),
         })
     }
 
@@ -111,7 +152,8 @@ impl Jwc {
         base_url: &String,
         client: &Client,
         category: &Category,
-        page: i32
+        attachment_extensions: &[String],
+        page: i32,
     ) -> Result<FetchStatus, Box<dyn Error>> {
         let final_path = if page == 1 {
             &category.path
@@ -150,29 +192,26 @@ impl Jwc {
             .collect();
 
         // 使用 Rayon 并行抓取详情页正文
+        let client_clone = client.clone();
+        let label_clone = category.label.clone();
+        let base_url_clone = base_url.clone();
+        let ext_clone = attachment_extensions.to_owned();
+
         let items: Vec<NewsItem> = rows_data
             .into_par_iter()
-            .map(|(title, date, detail_url)| {
-                let is_web_page = {
-                    let url_lower = detail_url.to_lowercase();
-                    !url_lower.ends_with(".pdf")
-                        && !url_lower.ends_with(".doc")
-                        && !url_lower.ends_with(".docx")
-                        && !url_lower.ends_with(".xls")
-                        && !url_lower.ends_with(".xlsx")
-                        && !url_lower.ends_with(".zip")
-                        && !url_lower.ends_with(".rar")
-                };
+            .map(move |(title, date, detail_url)| {
+                let url_lower = detail_url.to_lowercase();
 
-                // 在并行线程中发起网络请求
-                let content = if is_web_page && detail_url.starts_with(base_url) {
-                    Self::fetch_content(client, &detail_url).ok()
-                } else {
-                    None
-                };
+                // 判定是否为网页
+                let is_web_page = !ext_clone.iter().any(|x| url_lower.ends_with(x));
+
+                let mut content = None;
+                if is_web_page && detail_url.starts_with(&base_url_clone) {
+                    content = Jwc::fetch_content(&client_clone, &detail_url, &ext_clone).ok();
+                }
 
                 NewsItem {
-                    label: category.label.clone(),
+                    label: label_clone.clone(),
                     title,
                     date,
                     detail_url,
@@ -203,23 +242,58 @@ impl Jwc {
         })
     }
 
-    fn fetch_content(client: &Client, url: &str) -> Result<String, Box<dyn Error>> {
+    fn fetch_content(
+        client: &Client,
+        url: &str,
+        extensions: &[String],
+    ) -> Result<Content, Box<dyn Error>> {
+        let base_url = Url::parse(url)?;
+
         let text = client.get(url).send()?.text()?;
         let document = Html::parse_document(&text);
 
         let content_sel = Selector::parse("div.Article_Content").unwrap();
 
         if let Some(content_element) = document.select(&content_sel).next() {
-            return Ok(content_element.inner_html());
-            // 获取纯文本内容 (去除所有 HTML 标签)
-            /*let plain_text: String = content_element
-            .text()
-            .collect::<Vec<_>>()
-            .join("")
-            .trim()
-            .to_string();*/
+            let raw_text = get_pretty_text(content_element);
+            let plain_text = raw_text
+                .lines()
+                .map(|line| line.trim())
+                .filter(|line| !line.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n");
+            let mut attachment_urls = Vec::new();
+            let all_elements_sel = Selector::parse("*").unwrap();
+
+            for element in content_element.select(&all_elements_sel) {
+                let mut process_link = |raw_url: &str| {
+                    if let Ok(full_url) = base_url.join(raw_url) {
+                        let url_str = full_url.to_string();
+                        let lower_url = url_str.to_lowercase();
+                        if extensions.iter().any(|ext| lower_url.ends_with(ext)) {
+                            attachment_urls.push(url_str);
+                        }
+                    }
+                };
+
+                if let Some(href) = element.value().attr("href") {
+                    process_link(href);
+                }
+                if let Some(pdfsrc) = element.value().attr("pdfsrc") {
+                    process_link(pdfsrc);
+                }
+            }
+
+            attachment_urls.sort();
+            attachment_urls.dedup();
+
+            Ok(Content {
+                text: plain_text,
+                attachment_urls,
+            })
+        } else {
+            Err("Content not found".into())
         }
-        Ok("".to_string())
     }
 }
 
@@ -229,8 +303,12 @@ mod tests {
     #[test]
     fn test_fetch_summary() {
         let jwc = Jwc::new().unwrap();
-        let s = Jwc::fetch_content(&jwc.client, "https://jwc.seu.edu.cn/2021/1103/c21681a389469/page.psp")
-            .unwrap();
-        println!("{s}");
+        let s = Jwc::fetch_content(
+            &jwc.client,
+            "https://jwc.seu.edu.cn/2026/0126/c21676a553741/page.htm",
+            &[".pdf", ".docx", ".doc", ".xlsx", ".xls", ".zip", ".rar"].map(|s| {s.to_string()})
+        )
+        .unwrap();
+        println!("{s:?}");
     }
 }
