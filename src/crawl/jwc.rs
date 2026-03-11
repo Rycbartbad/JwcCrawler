@@ -4,6 +4,7 @@ use reqwest::blocking::Client;
 use scraper::{ElementRef, Html, Node, Selector};
 use std::error::Error;
 use std::time::Duration;
+use sha2::{Digest, Sha256};
 use url::Url;
 
 struct Category {
@@ -148,6 +149,12 @@ impl Jwc {
         })
     }
 
+    fn generate_key(url: &str) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(url.as_bytes());
+        let result = hasher.finalize();
+        result.iter().map(|b| format!("{:02x}", b)).collect::<String>()
+    }
     fn fetch_pages(
         base_url: &String,
         client: &Client,
@@ -210,7 +217,9 @@ impl Jwc {
                     content = Jwc::fetch_content(&client_clone, &detail_url, &ext_clone).ok();
                 }
 
+                let key = Self::generate_key(&detail_url);
                 NewsItem {
+                    id: key,
                     label: label_clone.clone(),
                     title,
                     date,

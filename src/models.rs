@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Deserialize, Serialize)]
 #[derive(Debug)]
 pub struct NewsItem {
+    pub id: String,
     pub label: String,
     pub title: String,
     pub date: String,
