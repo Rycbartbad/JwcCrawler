@@ -12,7 +12,7 @@ mod crawl;
 pub struct Args {
     #[arg(short, long)]
     out: String,
-    #[arg(short, long, help = "Fetch news after the given date. Fetch all if not passed")]
+    #[arg(short, long, help = "Fetch news after the given date. Fetch all if not passed. e.g. 2026-03-01")]
     date: Option<String>,
     #[arg(long, help = "Only fetch news with contents")]
     with_contents_only: bool
@@ -24,7 +24,7 @@ pub fn run(args: Args) -> Result<(), Box<dyn Error>> {
         args.date.as_ref(),
         args.with_contents_only
     )?;
-    
+
     let s = serde_json::to_string_pretty(&items)?;
     fs::write(args.out, s)?;
     Ok(())
