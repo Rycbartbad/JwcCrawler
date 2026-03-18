@@ -1,11 +1,12 @@
-use std::collections::HashMap;
 use crate::models::{Content, DataSource, NewsItem};
+use chrono::NaiveDate;
 use rayon::prelude::*;
 use reqwest::blocking::Client;
 use scraper::{ElementRef, Html, Node, Selector};
+use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::error::Error;
 use std::time::Duration;
-use sha2::{Digest, Sha256};
 use url::Url;
 
 #[derive(Eq, Hash, PartialEq)]
@@ -21,14 +22,18 @@ pub struct Jwc {
 }
 
 impl DataSource for Jwc {
-    fn fetch(&self, date_after: Option<&String>, with_contents_only: bool) -> Result<Vec<NewsItem>, Box<dyn Error>> {
+    fn fetch(
+        &self,
+        date_after: Option<NaiveDate>,
+        with_contents_only: bool,
+    ) -> Result<Vec<NewsItem>, Box<dyn Error>> {
         let mut all_news = Vec::new();
 
         let client = &self.client;
         let base_url = &self.base_url;
-        let mut end_reached_map : HashMap<&Category, bool> = HashMap::new();
+        let mut end_reached_map: HashMap<&Category, bool> = HashMap::new();
         let mut page_map: HashMap<&Category, i32> = HashMap::new();
-        for category in &self.categories{
+        for category in &self.categories {
             end_reached_map.insert(category, false);
             page_map.insert(category, 1);
         }
@@ -43,7 +48,7 @@ impl DataSource for Jwc {
                     &self.attachment_extensions,
                     current_page,
                     date_after,
-                    with_contents_only
+                    with_contents_only,
                 )?;
 
                 if status.news_items.is_empty() {
@@ -147,7 +152,10 @@ impl Jwc {
         let mut hasher = Sha256::new();
         hasher.update(url.as_bytes());
         let result = hasher.finalize();
-        result.iter().map(|b| format!("{:02x}", b)).collect::<String>()
+        result
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>()
     }
 
     fn fetch_pages(
@@ -156,8 +164,8 @@ impl Jwc {
         category: &Category,
         attachment_extensions: &[String],
         page: i32,
-        date_after: Option<&String>,
-        with_contents_only: bool
+        date_after: Option<NaiveDate>,
+        with_contents_only: bool,
     ) -> Result<FetchStatus, Box<dyn Error>> {
         let final_path = if page == 1 {
             &category.path
@@ -198,31 +206,36 @@ impl Jwc {
         let items: Vec<NewsItem> = rows_data
             .into_par_iter()
             .filter_map(move |(title, date, detail_url)| {
-                // 过滤日期
-                if date_after.is_some_and( |target_date| target_date > &date) { return None; }
+                let news_date = NaiveDate::parse_from_str(&date, "%Y-%m-%d").unwrap_or_else(|e1| {
+                    eprintln!("Error when parsing date from {title}: {e1}");
+                    NaiveDate::default()
+                });
+                if let Some(target) = date_after
+                    && news_date < target
+                {
+                    return None;
+                }
 
                 let url_lower = detail_url.to_lowercase();
-
-                // 判定是否为网页
                 let is_web_page = !attachment_extensions.iter().any(|x| url_lower.ends_with(x));
-                let mut content = None;
 
+                // 3. 内容抓取逻辑
+                let mut content = None;
                 if is_web_page && detail_url.starts_with(base_url) {
                     content = Jwc::fetch_content(client, &detail_url, attachment_extensions).ok();
                 }
 
-                // 如果只抓有内容的网页
-                if content.is_none() && with_contents_only { return None; }
-
-                let key = Self::generate_key(&detail_url);
-                if content.as_ref().is_none_or(|x| x.text.is_empty()) {
-                    eprintln!("{:#?}", content)
+                // 4. 仅抓取有内容项的过滤
+                if with_contents_only && content.is_none() {
+                    return None;
                 }
+
+                // 5. 构建结果
                 Some(NewsItem {
-                    id: key,
+                    id: Self::generate_key(&detail_url),
                     label: category.label.clone(),
                     title,
-                    date,
+                    date: news_date,
                     detail_url,
                     content,
                     is_page: is_web_page,
@@ -315,7 +328,7 @@ mod tests {
         let s = Jwc::fetch_content(
             &jwc.client,
             "https://jwc.seu.edu.cn/2026/0126/c21676a553741/page.htm",
-            &[".pdf", ".docx", ".doc", ".xlsx", ".xls", ".zip", ".rar"].map(|s| {s.to_string()})
+            &[".pdf", ".docx", ".doc", ".xlsx", ".xls", ".zip", ".rar"].map(|s| s.to_string()),
         )
         .unwrap();
         println!("{s:?}");
