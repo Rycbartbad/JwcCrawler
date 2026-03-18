@@ -11,7 +11,7 @@ pub mod models;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
-    #[arg(short, long)]
+    #[arg(short, long, help = "Output file path")]
     out: String,
     #[arg(
         short,
