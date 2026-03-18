@@ -1,8 +1,10 @@
 use crate::models::{Content, DataSource, NewsItem};
 use chrono::NaiveDate;
+use htmd::HtmlToMarkdown;
 use rayon::prelude::*;
+use regex::Regex;
 use reqwest::blocking::Client;
-use scraper::{ElementRef, Html, Node, Selector};
+use scraper::{ElementRef, Html, Selector};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::error::Error;
@@ -74,35 +76,59 @@ struct FetchStatus {
     has_next_page: bool,
 }
 
-fn get_pretty_text(element: ElementRef) -> String {
-    let mut text = String::new();
+fn get_pretty_text(element: ElementRef, base_url: &Url) -> String {
+    let html_fragment = element.html();
+    let converter = HtmlToMarkdown::new();
+    let raw_markdown = converter
+        .convert(&html_fragment)
+        .unwrap_or_else(|_| "".to_string());
 
-    for node in element.children() {
-        match node.value() {
-            // 如果是文本节点，直接追加
-            Node::Text(t) => {
-                text.push_str(t);
-            }
-            // 如果是元素节点，递归处理并根据标签名加换行
-            Node::Element(e) => {
-                let tag_name = e.name();
-                let child_ref = ElementRef::wrap(node).unwrap();
-                let child_text = get_pretty_text(child_ref);
+    let cleaned = fix_markdown_links(&raw_markdown, base_url);
 
-                match tag_name {
-                    "p" | "div" | "tr" | "br" | "h1" | "h2" | "h3" => {
-                        text.push('\n');
-                        text.push_str(&child_text);
-                        text.push('\n');
-                    }
-                    _ => text.push_str(&child_text), // span, a, b 等行内元素不换行
-                }
-            }
-            _ => {}
-        }
-    }
-    text
+    let re_multi_spaces = Regex::new(r"[ \t]{2,}").unwrap(); // 匹配 2 个及以上的连续空格或制表符
+    let re_extra_newlines = Regex::new(r"\n{3,}").unwrap(); // 匹配 3 个及以上的连续换行
+
+    let result = cleaned
+        .lines()
+        .map(|line| {
+            let t = line.trim();
+            re_multi_spaces.replace_all(t, " ").to_string()
+        })
+        .filter(|line| !line.is_empty())
+        .filter(|line| !line.starts_with("![")) // 过滤图标
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    re_extra_newlines.replace_all(&result, "\n\n").to_string()
 }
+
+fn fix_markdown_links(md: &str, base_url: &Url) -> String {
+    // 1. (!?\[.*?\]) 匹配链接文本部分，如 [附件1...]
+    // 2. \( 匹配左括号
+    // 3. (?P<u>[^ \)]+) 匹配真正的 URL 部分，直到遇到空格或右括号为止
+    // 4. (?:\s+.*?)? 匹配并丢弃括号里的空格及其后的 title/attr
+    // 5. \) 匹配右括号
+    let re = Regex::new(r"(?P<p>!?\[.*?\])\((?P<u>[^ \)]+)(?:\s+.*?)?\)").unwrap();
+
+    re.replace_all(md, |caps: &regex::Captures| {
+        let prefix = &caps["p"];
+        let link = &caps["u"];
+
+        // 尝试转为绝对路径
+        if let Ok(absolute_url) = base_url.join(link) {
+            // 过滤掉教务处常见的 UI 图标链接
+            let url_str = absolute_url.to_string();
+            if url_str.contains("default/images/icon_") {
+                return "".to_string();
+            }
+            format!("{}({})", prefix, url_str)
+        } else {
+            format!("{}({})", prefix, link)
+        }
+    })
+    .to_string()
+}
+
 impl Jwc {
     pub fn new() -> Result<Self, Box<dyn Error>> {
         Ok(Self {
@@ -219,13 +245,11 @@ impl Jwc {
                 let url_lower = detail_url.to_lowercase();
                 let is_web_page = !attachment_extensions.iter().any(|x| url_lower.ends_with(x));
 
-                // 3. 内容抓取逻辑
                 let mut content = None;
                 if is_web_page && detail_url.starts_with(base_url) {
                     content = Jwc::fetch_content(client, &detail_url, attachment_extensions).ok();
                 }
 
-                // 4. 仅抓取有内容项的过滤
                 if with_contents_only && content.is_none() {
                     return None;
                 }
@@ -277,13 +301,7 @@ impl Jwc {
         let content_sel = Selector::parse("div.Article_Content").unwrap();
 
         if let Some(content_element) = document.select(&content_sel).next() {
-            let raw_text = get_pretty_text(content_element);
-            let plain_text = raw_text
-                .lines()
-                .map(|line| line.trim())
-                .filter(|line| !line.is_empty())
-                .collect::<Vec<_>>()
-                .join("\n");
+            let plain_text = get_pretty_text(content_element, &base_url);
             let mut attachment_urls = Vec::new();
             let all_elements_sel = Selector::parse("*").unwrap();
 
