@@ -1,4 +1,6 @@
 use std::error::Error;
+use std::fs;
+use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize)]
@@ -23,4 +25,12 @@ pub struct Content {
 
 pub trait DataSource {
     fn fetch(&mut self) -> Result<Vec<NewsItem>, Box<dyn Error>>;
+
+    fn save_to_file(&mut self, path: impl AsRef<Path>) -> Result<(), Box<dyn Error>> {
+        let v  = self.fetch()?;
+
+        let s = serde_json::to_string_pretty(&v)?;
+        fs::write(path, s)?;
+        Ok(())
+    }
 }

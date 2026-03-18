@@ -7,6 +7,8 @@ use jwc_crawler::run;
 struct Args {
     #[arg(short, long)]
     out: String,
+    #[arg(short, long)]
+    date: Option<String>
 }
 
 fn main() -> Result<(), Box<dyn Error>>{

@@ -1,13 +1,12 @@
 use std::error::Error;
 use std::path::Path;
 use crate::crawl::jwc::Jwc;
-use crate::save::save;
+use crate::models::DataSource;
 
 pub mod models;
 mod crawl;
-mod save;
 
 pub fn run(out: impl AsRef<Path>) -> Result<(), Box<dyn Error>> {
-    let jwc = Jwc::new()?;
-    save(Box::new(jwc), out)
+    let mut jwc = Jwc::new()?;
+    jwc.save_to_file(out)
 }
