@@ -270,17 +270,16 @@ impl Jwc {
         let curr_sel = Selector::parse("em.curr_page").unwrap();
         let all_sel = Selector::parse("em.all_pages").unwrap();
 
-        let current = document
-            .select(&curr_sel)
-            .next()
-            .and_then(|e| e.text().collect::<String>().parse::<i32>().ok())
-            .unwrap_or(1);
+        let extract_num = |sel: &Selector| {
+            document
+                .select(sel)
+                .next()
+                .and_then(|e| e.text().collect::<String>().trim().parse::<i32>().ok())
+                .unwrap_or(1)
+        };
 
-        let total = document
-            .select(&all_sel)
-            .next()
-            .and_then(|e| e.text().collect::<String>().parse::<i32>().ok())
-            .unwrap_or(1);
+        let current = extract_num(&curr_sel);
+        let total = extract_num(&all_sel);
 
         Ok(FetchStatus {
             news_items: items,
