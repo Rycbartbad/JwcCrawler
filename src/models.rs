@@ -24,9 +24,30 @@ pub struct Content {
 
 
 pub trait DataSource {
-    fn fetch(&mut self) -> Result<Vec<NewsItem>, Box<dyn Error>>;
+    fn fetch(&self) -> Result<Vec<NewsItem>, Box<dyn Error>>;
 
-    fn save_to_file(&mut self, path: impl AsRef<Path>) -> Result<(), Box<dyn Error>> {
+    fn fetch_news_with_contents(&self) -> Result<Vec<NewsItem>, Box<dyn Error>> {
+        let all_news = self.fetch()?;
+
+        let filtered_news: Vec<NewsItem> = all_news
+            .into_iter()
+            .filter(|item| item.content.is_some())
+            .collect();
+
+        Ok(filtered_news)
+    }
+
+    fn fetch_news_without_contents(&self) -> Result<Vec<NewsItem>, Box<dyn Error>> {
+        let all_news = self.fetch()?;
+
+        let filtered_news: Vec<NewsItem> = all_news
+            .into_iter()
+            .filter(|item| item.content.is_none())
+            .collect();
+
+        Ok(filtered_news)
+    }
+    fn save_to_file(&self, path: impl AsRef<Path>) -> Result<(), Box<dyn Error>> {
         let v  = self.fetch()?;
 
         let s = serde_json::to_string_pretty(&v)?;

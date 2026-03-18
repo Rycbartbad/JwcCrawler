@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use crate::models::{Content, DataSource, NewsItem};
 use rayon::prelude::*;
 use reqwest::blocking::Client;
@@ -7,11 +8,10 @@ use std::time::Duration;
 use sha2::{Digest, Sha256};
 use url::Url;
 
+#[derive(Eq, Hash, PartialEq)]
 struct Category {
     label: String,
     path: String,
-    page: i32,
-    end_reached: bool,
 }
 pub struct Jwc {
     base_url: String,
@@ -21,15 +21,21 @@ pub struct Jwc {
 }
 
 impl DataSource for Jwc {
-    fn fetch(&mut self) -> Result<Vec<NewsItem>, Box<dyn Error>> {
+    fn fetch(&self) -> Result<Vec<NewsItem>, Box<dyn Error>> {
         let mut all_news = Vec::new();
 
         let client = &self.client;
         let base_url = &self.base_url;
-
-        for category in &mut self.categories {
-            while !category.end_reached {
-                let current_page = category.page;
+        let mut end_reached_map : HashMap<&Category, bool> = HashMap::new();
+        let mut page_map: HashMap<&Category, i32> = HashMap::new();
+        for category in &self.categories{
+            end_reached_map.insert(category, false);
+            page_map.insert(category, 1);
+        }
+        
+        for category in &self.categories {
+            while !end_reached_map[category] {
+                let current_page = page_map[category];
                 let status = Self::fetch_pages(
                     base_url,
                     client,
@@ -39,16 +45,16 @@ impl DataSource for Jwc {
                 )?;
 
                 if status.news_items.is_empty() {
-                    category.end_reached = true;
+                    end_reached_map.insert(category, true);
                     break;
                 }
                 println!("{:#?}", status.news_items);
                 all_news.extend(status.news_items);
 
                 if status.has_next_page {
-                    category.page += 1;
+                    page_map.insert(category, page_map[category] + 1);
                 } else {
-                    category.end_reached = true;
+                    end_reached_map.insert(category, true);
                 }
             }
         }
@@ -98,44 +104,30 @@ impl Jwc {
                 Category {
                     label: "最新动态".to_string(),
                     path: "/zxdt/list.htm".to_string(),
-                    page: 1,
-                    end_reached: false,
                 },
                 Category {
                     label: "教务信息".to_string(),
                     path: "/jwxx/list.htm".to_string(),
-                    page: 1,
-                    end_reached: false,
                 },
                 Category {
                     label: "学籍管理".to_string(),
                     path: "/xjgl/list.htm".to_string(),
-                    page: 1,
-                    end_reached: false,
                 },
                 Category {
                     label: "教学研究".to_string(),
                     path: "/jxyj/list.htm".to_string(),
-                    page: 1,
-                    end_reached: false,
                 },
                 Category {
                     label: "实践教学".to_string(),
                     path: "/sjjx/list.htm".to_string(),
-                    page: 1,
-                    end_reached: false,
                 },
                 Category {
                     label: "国际交流".to_string(),
                     path: "/gjjl/list.psp".to_string(),
-                    page: 1,
-                    end_reached: false,
                 },
                 Category {
                     label: "文化素质教育".to_string(),
                     path: "/cbxx/list.htm".to_string(),
-                    page: 1,
-                    end_reached: false,
                 },
             ],
             client: Client::builder()
@@ -155,6 +147,7 @@ impl Jwc {
         let result = hasher.finalize();
         result.iter().map(|b| format!("{:02x}", b)).collect::<String>()
     }
+    
     fn fetch_pages(
         base_url: &String,
         client: &Client,
@@ -218,6 +211,9 @@ impl Jwc {
                 }
 
                 let key = Self::generate_key(&detail_url);
+                if content.as_ref().is_none_or(|x| x.text.is_empty()) {
+                    eprintln!("{:#?}", content)
+                }
                 NewsItem {
                     id: key,
                     label: label_clone.clone(),
