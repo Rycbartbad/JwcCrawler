@@ -78,55 +78,85 @@ struct FetchStatus {
 
 fn get_pretty_text(element: ElementRef, base_url: &Url) -> String {
     let html_fragment = element.html();
-    let converter = HtmlToMarkdown::new();
+
+    let pre_cleaned_html = html_fragment
+        .replace("&nbsp;", " ")
+        .replace("&#160;", " ");
+
+    let converter = HtmlToMarkdown::builder()
+        .skip_tags(vec!["script", "style", "colgroup", "col"])
+        .build();
+
     let raw_markdown = converter
-        .convert(&html_fragment)
-        .unwrap_or_else(|_| "".to_string());
+        .convert(&pre_cleaned_html)
+        .unwrap_or_default();
 
-    let cleaned = fix_markdown_links(&raw_markdown, base_url);
+    let cleaned = fix_markdown_links(&raw_markdown, base_url).replace("||", "|\n|");
+    let re_multi_spaces = Regex::new(r"[ \t]{2,}").unwrap();
 
-    let re_multi_spaces = Regex::new(r"[ \t]{2,}").unwrap(); // 匹配 2 个及以上的连续空格或制表符
-    let re_extra_newlines = Regex::new(r"\n{3,}").unwrap(); // 匹配 3 个及以上的连续换行
-
-    let result = cleaned
+    let lines: Vec<String> = cleaned
         .lines()
         .map(|line| {
-            let t = line.trim();
-            re_multi_spaces.replace_all(t, " ").to_string()
+            let t = line.trim()
+                .replace("&nbsp;", " ")
+                .replace("\u{a0}", " ");
+            re_multi_spaces.replace_all(&t, " ").to_string()
         })
         .filter(|line| !line.is_empty())
-        .filter(|line| !line.starts_with("![")) // 过滤图标
-        .collect::<Vec<_>>()
-        .join("\n");
+        .collect();
+    let mut result = String::new();
+    for i in 0..lines.len() {
+        result.push_str(&lines[i]);
+        if i + 1 < lines.len() {
+            if lines[i].starts_with('|') && lines[i+1].starts_with('|') {
+                result.push('\n');
+            } else {
+                result.push_str("\n\n");
+            }
+        }
+    }
 
-    re_extra_newlines.replace_all(&result, "\n\n").to_string()
+    fix_markdown_table_separator(&result)
 }
 
 fn fix_markdown_links(md: &str, base_url: &Url) -> String {
-    // 1. (!?\[.*?\]) 匹配链接文本部分，如 [附件1...]
-    // 2. \( 匹配左括号
-    // 3. (?P<u>[^ \)]+) 匹配真正的 URL 部分，直到遇到空格或右括号为止
-    // 4. (?:\s+.*?)? 匹配并丢弃括号里的空格及其后的 title/attr
-    // 5. \) 匹配右括号
     let re = Regex::new(r"(?P<p>!?\[.*?\])\((?P<u>[^ \)]+)(?:\s+.*?)?\)").unwrap();
 
-    re.replace_all(md, |caps: &regex::Captures| {
+    let cleaned = re.replace_all(md, |caps: &regex::Captures| {
         let prefix = &caps["p"];
         let link = &caps["u"];
-
-        // 尝试转为绝对路径
         if let Ok(absolute_url) = base_url.join(link) {
-            // 过滤掉教务处常见的 UI 图标链接
             let url_str = absolute_url.to_string();
-            if url_str.contains("default/images/icon_") {
-                return "".to_string();
-            }
+            if url_str.contains("icon_") { return "".to_string(); }
             format!("{}({})", prefix, url_str)
         } else {
             format!("{}({})", prefix, link)
         }
-    })
-    .to_string()
+    }).to_string();
+    cleaned
+}
+
+fn fix_markdown_table_separator(md: &str) -> String {
+    let mut lines: Vec<String> = md.lines().map(|s| s.to_string()).collect();
+    if lines.len() < 2 { return md.to_string(); }
+
+    if let Some(header_idx) = lines.iter().position(|l| l.trim().starts_with('|')) {
+        let column_count = lines[header_idx].matches('|').count().saturating_sub(1);
+
+        if column_count > 0 {
+            let separator = format!("| {} |", vec!["---"; column_count].join(" | "));
+            let has_sep = if header_idx + 1 < lines.len() {
+                lines[header_idx + 1].contains("---")
+            } else {
+                false
+            };
+
+            if !has_sep {
+                lines.insert(header_idx + 1, separator);
+            }
+        }
+    }
+    lines.join("\n")
 }
 
 impl Jwc {
