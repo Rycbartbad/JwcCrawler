@@ -1,6 +1,5 @@
-use crate::crawl::Category;
+use crate::crawl::{Category, Crawler, SelectionConfig, SiteConfig};
 use std::error::Error;
-use crate::{Crawler, SelectionConfig, SiteConfig};
 
 pub fn get_jwc() -> Result<Crawler, Box<dyn Error>> {
     let base_url =  "https://jwc.seu.edu.cn".to_string();
