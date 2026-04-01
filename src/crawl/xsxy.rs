@@ -18,7 +18,7 @@ pub fn get_xsxy() -> Result<Crawler, Box<dyn Error>> {
         }
     ];
     let config = SiteConfig{
-        name: "xsxy".to_string(),
+        name: "新生学院".to_string(),
         base_url,
         categories,
         selectors: SelectionConfig {
