@@ -14,9 +14,9 @@ use std::time::Duration;
 use url::Url;
 
 pub mod jwc;
+pub mod xsxy;
 
-#[derive(Deserialize, Serialize)]
-#[derive(Debug)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct NewsItem {
     pub id: String,
     pub label: String,
@@ -27,15 +27,13 @@ pub struct NewsItem {
     pub content: Option<Content>,
 }
 
-#[derive(Deserialize, Serialize)]
-#[derive(Debug)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct Content {
     pub text: String,
     pub attachment_urls: Vec<String>,
 }
 
-#[derive(Eq, Hash, PartialEq)]
-#[derive(Clone)]
+#[derive(Eq, Hash, PartialEq, Clone)]
 pub struct Category {
     pub label: String,
     pub path: String,
@@ -123,9 +121,7 @@ impl DataSource for Crawler {
 }
 
 impl Crawler {
-    pub fn new(
-        config: SiteConfig,
-    ) -> Result<Self, Box<dyn Error>> {
+    pub fn new(config: SiteConfig) -> Result<Self, Box<dyn Error>> {
         Ok(Self {
             config,
             client: Client::builder()
@@ -213,7 +209,13 @@ impl Crawler {
 
                 let mut content = None;
                 if is_web_page && detail_url.starts_with(base_url) {
-                    content = Crawler::fetch_content(client, &detail_url, attachment_extensions, &selection_config.content_body).ok();
+                    content = Crawler::fetch_content(
+                        client,
+                        &detail_url,
+                        attachment_extensions,
+                        &selection_config.content_body,
+                    )
+                    .ok();
                 }
 
                 if with_contents_only && content.is_none() {
@@ -305,17 +307,13 @@ impl Crawler {
 pub(crate) fn get_pretty_text(element: ElementRef, base_url: &Url) -> String {
     let html_fragment = element.html();
 
-    let pre_cleaned_html = html_fragment
-        .replace("&nbsp;", " ")
-        .replace("&#160;", " ");
+    let pre_cleaned_html = html_fragment.replace("&nbsp;", " ").replace("&#160;", " ");
 
     let converter = HtmlToMarkdown::builder()
         .skip_tags(vec!["script", "style", "colgroup", "col"])
         .build();
 
-    let raw_markdown = converter
-        .convert(&pre_cleaned_html)
-        .unwrap_or_default();
+    let raw_markdown = converter.convert(&pre_cleaned_html).unwrap_or_default();
 
     let cleaned = fix_markdown_links(&raw_markdown, base_url).replace("||", "|\n|");
     let re_multi_spaces = Regex::new(r"[ \t]{2,}").unwrap();
@@ -323,9 +321,7 @@ pub(crate) fn get_pretty_text(element: ElementRef, base_url: &Url) -> String {
     let lines: Vec<String> = cleaned
         .lines()
         .map(|line| {
-            let t = line.trim()
-                .replace("&nbsp;", " ")
-                .replace("\u{a0}", " ");
+            let t = line.trim().replace("&nbsp;", " ").replace("\u{a0}", " ");
             re_multi_spaces.replace_all(&t, " ").to_string()
         })
         .filter(|line| !line.is_empty())
@@ -334,7 +330,7 @@ pub(crate) fn get_pretty_text(element: ElementRef, base_url: &Url) -> String {
     for i in 0..lines.len() {
         result.push_str(&lines[i]);
         if i + 1 < lines.len() {
-            if lines[i].starts_with('|') && lines[i+1].starts_with('|') {
+            if lines[i].starts_with('|') && lines[i + 1].starts_with('|') {
                 result.push('\n');
             } else {
                 result.push_str("\n\n");
@@ -347,23 +343,29 @@ pub(crate) fn get_pretty_text(element: ElementRef, base_url: &Url) -> String {
 fn fix_markdown_links(md: &str, base_url: &Url) -> String {
     let re = Regex::new(r"(?P<p>!?\[.*?])\((?P<u>[^ )]+)(?:\s+.*?)?\)").unwrap();
 
-    let cleaned = re.replace_all(md, |caps: &regex::Captures| {
-        let prefix = &caps["p"];
-        let link = &caps["u"];
-        if let Ok(absolute_url) = base_url.join(link) {
-            let url_str = absolute_url.to_string();
-            if url_str.contains("icon_") { return "".to_string(); }
-            format!("{}({})", prefix, url_str)
-        } else {
-            format!("{}({})", prefix, link)
-        }
-    }).to_string();
+    let cleaned = re
+        .replace_all(md, |caps: &regex::Captures| {
+            let prefix = &caps["p"];
+            let link = &caps["u"];
+            if let Ok(absolute_url) = base_url.join(link) {
+                let url_str = absolute_url.to_string();
+                if url_str.contains("icon_") {
+                    return "".to_string();
+                }
+                format!("{}({})", prefix, url_str)
+            } else {
+                format!("{}({})", prefix, link)
+            }
+        })
+        .to_string();
     cleaned
 }
 
 fn fix_markdown_table_separator(md: &str) -> String {
     let mut lines: Vec<String> = md.lines().map(|s| s.to_string()).collect();
-    if lines.len() < 2 { return md.to_string(); }
+    if lines.len() < 2 {
+        return md.to_string();
+    }
 
     if let Some(header_idx) = lines.iter().position(|l| l.trim().starts_with('|')) {
         let column_count = lines[header_idx].matches('|').count().saturating_sub(1);

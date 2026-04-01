@@ -35,7 +35,7 @@ pub fn get_jwc() -> Result<Crawler, Box<dyn Error>> {
     ];
 
     let config = SiteConfig{
-        name: "教务处".to_string(),
+        name: "jwc".to_string(),
         base_url,
         categories,
         selectors: SelectionConfig {
