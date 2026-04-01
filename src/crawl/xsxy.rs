@@ -11,6 +11,10 @@ pub fn get_xsxy() -> Result<Crawler, Box<dyn Error>> {
         Category {
             label: "通知公告".to_string(),
             path: "/57141/list.htm".to_string()
+        },
+        Category{
+            label: "人才培养".to_string(),
+            path: "/57151/list.htm".to_string()
         }
     ];
     let config = SiteConfig{
