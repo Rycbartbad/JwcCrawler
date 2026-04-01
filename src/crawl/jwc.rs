@@ -1,29 +1,39 @@
-use crate::models::{Content, DataSource, NewsItem};
+use crate::crawl::{get_pretty_text, Category, Content, FetchStatus, NewsItem};
+use crate::models::DataSource;
 use chrono::NaiveDate;
-use htmd::HtmlToMarkdown;
 use rayon::prelude::*;
-use regex::Regex;
 use reqwest::blocking::Client;
-use scraper::{ElementRef, Html, Selector};
+use scraper::{Html, Selector};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::error::Error;
 use std::time::Duration;
 use url::Url;
 
-#[derive(Eq, Hash, PartialEq)]
-struct Category {
-    label: String,
-    path: String,
-}
-pub struct Jwc {
-    base_url: String,
-    categories: Vec<Category>,
+pub struct Crawler {
+    config: SiteConfig,
     client: Client,
     attachment_extensions: Vec<String>,
 }
 
-impl DataSource for Jwc {
+#[derive(Clone)]
+pub struct SiteConfig {
+    pub name: String,
+    pub base_url: String,
+    pub categories: Vec<Category>,
+    /// CSS 选择器配置
+    pub selectors: SelectionConfig,
+}
+
+#[derive(Clone)]
+pub struct SelectionConfig {
+    pub list_row: String,
+    pub list_title_link: String,
+    pub list_date: String,
+    pub content_body: String,
+}
+
+impl DataSource for Crawler {
     fn fetch(
         &self,
         date_after: Option<NaiveDate>,
@@ -32,22 +42,26 @@ impl DataSource for Jwc {
         let mut all_news = Vec::new();
 
         let client = &self.client;
-        let base_url = &self.base_url;
+        let base_url = &self.config.base_url;
+        let categories = &self.config.categories;
+        let extensions = &self.attachment_extensions;
+        let selectors = &self.config.selectors;
         let mut end_reached_map: HashMap<&Category, bool> = HashMap::new();
         let mut page_map: HashMap<&Category, i32> = HashMap::new();
-        for category in &self.categories {
+        for category in categories {
             end_reached_map.insert(category, false);
             page_map.insert(category, 1);
         }
 
-        for category in &self.categories {
+        for category in categories {
             while !end_reached_map[category] {
                 let current_page = page_map[category];
                 let status = Self::fetch_pages(
                     base_url,
                     client,
                     category,
-                    &self.attachment_extensions,
+                    extensions,
+                    selectors,
                     current_page,
                     date_after,
                     with_contents_only,
@@ -71,128 +85,12 @@ impl DataSource for Jwc {
     }
 }
 
-struct FetchStatus {
-    news_items: Vec<NewsItem>,
-    has_next_page: bool,
-}
-
-fn get_pretty_text(element: ElementRef, base_url: &Url) -> String {
-    let html_fragment = element.html();
-
-    let pre_cleaned_html = html_fragment
-        .replace("&nbsp;", " ")
-        .replace("&#160;", " ");
-
-    let converter = HtmlToMarkdown::builder()
-        .skip_tags(vec!["script", "style", "colgroup", "col"])
-        .build();
-
-    let raw_markdown = converter
-        .convert(&pre_cleaned_html)
-        .unwrap_or_default();
-
-    let cleaned = fix_markdown_links(&raw_markdown, base_url).replace("||", "|\n|");
-    let re_multi_spaces = Regex::new(r"[ \t]{2,}").unwrap();
-
-    let lines: Vec<String> = cleaned
-        .lines()
-        .map(|line| {
-            let t = line.trim()
-                .replace("&nbsp;", " ")
-                .replace("\u{a0}", " ");
-            re_multi_spaces.replace_all(&t, " ").to_string()
-        })
-        .filter(|line| !line.is_empty())
-        .collect();
-    let mut result = String::new();
-    for i in 0..lines.len() {
-        result.push_str(&lines[i]);
-        if i + 1 < lines.len() {
-            if lines[i].starts_with('|') && lines[i+1].starts_with('|') {
-                result.push('\n');
-            } else {
-                result.push_str("\n\n");
-            }
-        }
-    }
-
-    fix_markdown_table_separator(&result)
-}
-
-fn fix_markdown_links(md: &str, base_url: &Url) -> String {
-    let re = Regex::new(r"(?P<p>!?\[.*?\])\((?P<u>[^ \)]+)(?:\s+.*?)?\)").unwrap();
-
-    let cleaned = re.replace_all(md, |caps: &regex::Captures| {
-        let prefix = &caps["p"];
-        let link = &caps["u"];
-        if let Ok(absolute_url) = base_url.join(link) {
-            let url_str = absolute_url.to_string();
-            if url_str.contains("icon_") { return "".to_string(); }
-            format!("{}({})", prefix, url_str)
-        } else {
-            format!("{}({})", prefix, link)
-        }
-    }).to_string();
-    cleaned
-}
-
-fn fix_markdown_table_separator(md: &str) -> String {
-    let mut lines: Vec<String> = md.lines().map(|s| s.to_string()).collect();
-    if lines.len() < 2 { return md.to_string(); }
-
-    if let Some(header_idx) = lines.iter().position(|l| l.trim().starts_with('|')) {
-        let column_count = lines[header_idx].matches('|').count().saturating_sub(1);
-
-        if column_count > 0 {
-            let separator = format!("| {} |", vec!["---"; column_count].join(" | "));
-            let has_sep = if header_idx + 1 < lines.len() {
-                lines[header_idx + 1].contains("---")
-            } else {
-                false
-            };
-
-            if !has_sep {
-                lines.insert(header_idx + 1, separator);
-            }
-        }
-    }
-    lines.join("\n")
-}
-
-impl Jwc {
-    pub fn new() -> Result<Self, Box<dyn Error>> {
+impl Crawler {
+    pub fn new(
+        config: SiteConfig,
+    ) -> Result<Self, Box<dyn Error>> {
         Ok(Self {
-            base_url: "https://jwc.seu.edu.cn".to_string(),
-            categories: vec![
-                Category {
-                    label: "最新动态".to_string(),
-                    path: "/zxdt/list.htm".to_string(),
-                },
-                Category {
-                    label: "教务信息".to_string(),
-                    path: "/jwxx/list.htm".to_string(),
-                },
-                Category {
-                    label: "学籍管理".to_string(),
-                    path: "/xjgl/list.htm".to_string(),
-                },
-                Category {
-                    label: "教学研究".to_string(),
-                    path: "/jxyj/list.htm".to_string(),
-                },
-                Category {
-                    label: "实践教学".to_string(),
-                    path: "/sjjx/list.htm".to_string(),
-                },
-                Category {
-                    label: "国际交流".to_string(),
-                    path: "/gjjl/list.psp".to_string(),
-                },
-                Category {
-                    label: "文化素质教育".to_string(),
-                    path: "/cbxx/list.htm".to_string(),
-                },
-            ],
+            config,
             client: Client::builder()
                 .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
                 .timeout(Duration::from_secs(10))
@@ -219,6 +117,7 @@ impl Jwc {
         client: &Client,
         category: &Category,
         attachment_extensions: &[String],
+        selection_config: &SelectionConfig,
         page: i32,
         date_after: Option<NaiveDate>,
         with_contents_only: bool,
@@ -233,9 +132,9 @@ impl Jwc {
         let response_text = client.get(&url).send()?.text()?;
         let document = Html::parse_document(&response_text);
 
-        let row_sel = Selector::parse("#wp_news_w8 table.main tr").unwrap();
-        let link_sel = Selector::parse("a[title]").unwrap();
-        let date_sel = Selector::parse("td.main div").unwrap();
+        let row_sel = Selector::parse(&selection_config.list_row).unwrap();
+        let link_sel = Selector::parse(&selection_config.list_title_link).unwrap();
+        let date_sel = Selector::parse(&selection_config.list_date).unwrap();
 
         let rows_data: Vec<_> = document
             .select(&row_sel)
@@ -277,14 +176,13 @@ impl Jwc {
 
                 let mut content = None;
                 if is_web_page && detail_url.starts_with(base_url) {
-                    content = Jwc::fetch_content(client, &detail_url, attachment_extensions).ok();
+                    content = Crawler::fetch_content(client, &detail_url, attachment_extensions, &selection_config.content_body).ok();
                 }
 
                 if with_contents_only && content.is_none() {
                     return None;
                 }
 
-                // 5. 构建结果
                 Some(NewsItem {
                     id: Self::generate_key(&detail_url),
                     label: category.label.clone(),
@@ -321,13 +219,14 @@ impl Jwc {
         client: &Client,
         url: &str,
         extensions: &[String],
+        content_body_sel: &String, // Content Body selection string, e.g. div.Article_Content
     ) -> Result<Content, Box<dyn Error>> {
         let base_url = Url::parse(url)?;
 
         let text = client.get(url).send()?.text()?;
         let document = Html::parse_document(&text);
 
-        let content_sel = Selector::parse("div.Article_Content").unwrap();
+        let content_sel = Selector::parse(content_body_sel).unwrap();
 
         if let Some(content_element) = document.select(&content_sel).next() {
             let plain_text = get_pretty_text(content_element, &base_url);
@@ -371,11 +270,56 @@ mod tests {
     use super::*;
     #[test]
     fn test_fetch_summary() {
-        let jwc = Jwc::new().unwrap();
-        let s = Jwc::fetch_content(
+        let base_url =  "https://jwc.seu.edu.cn".to_string();
+        let categories =  vec![
+            Category {
+                label: "最新动态".to_string(),
+                path: "/zxdt/list.htm".to_string(),
+            },
+            Category {
+                label: "教务信息".to_string(),
+                path: "/jwxx/list.htm".to_string(),
+            },
+            Category {
+                label: "学籍管理".to_string(),
+                path: "/xjgl/list.htm".to_string(),
+            },
+            Category {
+                label: "教学研究".to_string(),
+                path: "/jxyj/list.htm".to_string(),
+            },
+            Category {
+                label: "实践教学".to_string(),
+                path: "/sjjx/list.htm".to_string(),
+            },
+            Category {
+                label: "国际交流".to_string(),
+                path: "/gjjl/list.psp".to_string(),
+            },
+            Category {
+                label: "文化素质教育".to_string(),
+                path: "/cbxx/list.htm".to_string(),
+            },
+        ];
+
+        let config = SiteConfig{
+            name: "教务处".to_string(),
+            base_url,
+            categories,
+            selectors: SelectionConfig {
+                list_row: "#wp_news_w8 table.main tr".to_string(),
+                list_title_link: "a[title]".to_string(),
+                list_date: "td.main div".to_string(),
+                content_body: "div.Article_Content".to_string(),
+            },
+        };
+
+        let jwc = Crawler::new(config.clone()).unwrap();
+        let s = Crawler::fetch_content(
             &jwc.client,
             "https://jwc.seu.edu.cn/2026/0126/c21676a553741/page.htm",
             &[".pdf", ".docx", ".doc", ".xlsx", ".xls", ".zip", ".rar"].map(|s| s.to_string()),
+            &config.selectors.content_body,
         )
         .unwrap();
         println!("{s:?}");
