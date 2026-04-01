@@ -37,7 +37,7 @@ pub struct FetchStatus {
     pub news_items: Vec<NewsItem>,
     pub has_next_page: bool,
 }
-fn get_pretty_text(element: ElementRef, base_url: &Url) -> String {
+pub(crate) fn get_pretty_text(element: ElementRef, base_url: &Url) -> String {
     let html_fragment = element.html();
 
     let pre_cleaned_html = html_fragment
