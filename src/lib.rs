@@ -53,6 +53,8 @@ pub struct SelectionConfig {
     pub list_title_link: String,
     pub list_date: String,
     pub content_body: String,
+    pub current_page: String,
+    pub all_pages: String,
 }
 
 impl DataSource for Crawler {
@@ -217,8 +219,8 @@ impl Crawler {
             })
             .collect();
 
-        let curr_sel = Selector::parse("em.curr_page").unwrap();
-        let all_sel = Selector::parse("em.all_pages").unwrap();
+        let curr_sel = Selector::parse(&selection_config.current_page).unwrap();
+        let all_sel = Selector::parse(&selection_config.all_pages).unwrap();
 
         let extract_num = |sel: &Selector| {
             document

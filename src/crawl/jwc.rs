@@ -44,6 +44,8 @@ pub fn get_jwc() -> Result<Crawler, Box<dyn Error>> {
             list_title_link: "a[title]".to_string(),
             list_date: "td.main div".to_string(),
             content_body: "div.Article_Content".to_string(),
+            current_page: "em.curr_page".to_string(),
+            all_pages: "em.all_pages".to_string(),
         },
     };
     Crawler::new(config)
