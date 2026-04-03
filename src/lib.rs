@@ -1,4 +1,5 @@
 use crate::crawl::Crawler;
+use crate::crawl::cs::get_cs;
 use crate::crawl::jwc::get_jwc;
 use crate::crawl::xsxy::get_xsxy;
 use crate::models::DataSource;
@@ -38,6 +39,7 @@ pub fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let crawler_map: HashMap<String, CrawlerFactory> = HashMap::from([
         ("jwc".to_string(), get_jwc as CrawlerFactory),
         ("xsxy".to_string(), get_xsxy as CrawlerFactory),
+        ("cs".to_string(), get_cs as CrawlerFactory),
     ]);
     let factory = crawler_map
         .get(&args.data_source)
