@@ -1,8 +1,8 @@
-use std::error::Error;
 use crate::crawl::{Category, Crawler, SelectionConfig, SiteConfig};
+use std::error::Error;
 
 pub fn get_xsxy() -> Result<Crawler, Box<dyn Error>> {
-    let base_url =  "https://xsxy.seu.edu.cn".to_string();
+    let base_url = "https://xsxy.seu.edu.cn".to_string();
     let categories = vec![
         Category {
             label: "新闻动态".to_string(),
@@ -10,14 +10,14 @@ pub fn get_xsxy() -> Result<Crawler, Box<dyn Error>> {
         },
         Category {
             label: "通知公告".to_string(),
-            path: "/57141/list.htm".to_string()
+            path: "/57141/list.htm".to_string(),
         },
-        Category{
+        Category {
             label: "人才培养".to_string(),
-            path: "/57151/list.htm".to_string()
-        }
+            path: "/57151/list.htm".to_string(),
+        },
     ];
-    let config = SiteConfig{
+    let config = SiteConfig {
         name: "新生学院".to_string(),
         base_url,
         categories,

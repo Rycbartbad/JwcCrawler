@@ -2,8 +2,8 @@ use crate::crawl::{Category, Crawler, SelectionConfig, SiteConfig};
 use std::error::Error;
 
 pub fn get_jwc() -> Result<Crawler, Box<dyn Error>> {
-    let base_url =  "https://jwc.seu.edu.cn".to_string();
-    let categories =  vec![
+    let base_url = "https://jwc.seu.edu.cn".to_string();
+    let categories = vec![
         Category {
             label: "最新动态".to_string(),
             path: "/zxdt/list.htm".to_string(),
@@ -34,7 +34,7 @@ pub fn get_jwc() -> Result<Crawler, Box<dyn Error>> {
         },
     ];
 
-    let config = SiteConfig{
+    let config = SiteConfig {
         name: "教务处".to_string(),
         base_url,
         categories,

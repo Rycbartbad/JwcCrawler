@@ -1,12 +1,12 @@
-use std::collections::HashMap;
+use crate::crawl::Crawler;
 use crate::crawl::jwc::get_jwc;
+use crate::crawl::xsxy::get_xsxy;
 use crate::models::DataSource;
 use chrono::NaiveDate;
 use clap::Parser;
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
-use crate::crawl::Crawler;
-use crate::crawl::xsxy::get_xsxy;
 
 mod crawl;
 pub mod models;
@@ -16,7 +16,11 @@ pub mod models;
 pub struct Args {
     #[arg(short, long, help = "Output file path")]
     out: String,
-    #[arg(long, default_value = "jwc", help = "Data Sources, e.g. jwc, xsxy, etc.")]
+    #[arg(
+        long,
+        default_value = "jwc",
+        help = "Data Sources, e.g. jwc, xsxy, etc."
+    )]
     data_source: String,
     #[arg(
         short,
@@ -26,18 +30,15 @@ pub struct Args {
     date: Option<String>,
     #[arg(long, help = "Only fetch news with contents")]
     with_contents_only: bool,
-
 }
 
 type CrawlerFactory = fn() -> Result<Crawler, Box<dyn Error>>;
 
 pub fn run(args: Args) -> Result<(), Box<dyn Error>> {
-    let crawler_map: HashMap<String, CrawlerFactory> = HashMap::from(
-        [
-            ("jwc".to_string(), get_jwc as CrawlerFactory),
-            ("xsxy".to_string(), get_xsxy as CrawlerFactory)
-        ]
-    );
+    let crawler_map: HashMap<String, CrawlerFactory> = HashMap::from([
+        ("jwc".to_string(), get_jwc as CrawlerFactory),
+        ("xsxy".to_string(), get_xsxy as CrawlerFactory),
+    ]);
     let factory = crawler_map
         .get(&args.data_source)
         .ok_or_else(|| format!("Unsupported data source: {}", args.data_source))?;
