@@ -41,9 +41,17 @@ pub fn run(args: Args) -> Result<(), Box<dyn Error>> {
         ("xsxy".to_string(), get_xsxy as CrawlerFactory),
         ("cs".to_string(), get_cs as CrawlerFactory),
     ]);
-    let factory = crawler_map
-        .get(&args.data_source)
-        .ok_or_else(|| format!("Unsupported data source: {}", args.data_source))?;
+    let factory = crawler_map.get(&args.data_source).ok_or_else(|| {
+        format!(
+            "Unsupported data source: {}. Currently support {}.",
+            args.data_source,
+            crawler_map
+                .keys()
+                .map(|it| it.clone())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    })?;
     let crawler = factory()?;
     let date = args
         .date
