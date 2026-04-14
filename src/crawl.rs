@@ -149,7 +149,7 @@ impl Crawler {
             &self.client,
             url,
             &self.attachment_extensions,
-            &content_body_sel.to_string(),
+            content_body_sel,
             self.crawler_config.keep_complex_tables,
         )
     }
@@ -279,7 +279,7 @@ impl Crawler {
         client: &Client,
         url: &str,
         extensions: &[String],
-        content_body_sel: &String, // Content Body selection string, e.g. div.Article_Content
+        content_body_sel: &str, // Content Body selection string, e.g. div.Article_Content
         keep_complex_tables: bool,
     ) -> Result<Content, Box<dyn Error>> {
         let base_url = Url::parse(url)?;

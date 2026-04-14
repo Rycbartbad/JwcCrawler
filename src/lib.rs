@@ -67,7 +67,7 @@ pub fn run(args: Args) -> Result<(), Box<dyn Error>> {
             args.data_source,
             crawler_map
                 .keys()
-                .map(|it| it.clone())
+                .cloned()
                 .collect::<Vec<_>>()
                 .join(", ")
         )
