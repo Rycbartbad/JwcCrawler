@@ -43,6 +43,16 @@ pub struct Args {
 type CrawlerFactory = fn() -> Result<Crawler, Box<dyn Error>>;
 
 pub fn run(args: Args) -> Result<(), Box<dyn Error>> {
+    // --url，直接爬取单个页面，方便进行测试
+    if let Some(url) = args.url {
+        let mut crawler = get_jwc()?;
+        crawler.set_keep_complex_tables(args.keep_complex_tables);
+        let content = crawler.fetch_url(&url, "div.Article_Content")?;
+        let s = serde_json::to_string_pretty(&content)?;
+        fs::write(args.out, s)?;
+        return Ok(());
+    }
+
     let crawler_map: HashMap<String, CrawlerFactory> = HashMap::from([
         ("jwc".to_string(), get_jwc as CrawlerFactory),
         ("xsxy".to_string(), get_xsxy as CrawlerFactory),

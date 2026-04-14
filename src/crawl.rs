@@ -144,6 +144,16 @@ impl Crawler {
         self.keep_complex_tables = value;
     }
 
+    pub fn fetch_url(&self, url: &str, content_body_sel: &str) -> Result<Content, Box<dyn Error>> {
+        Self::fetch_content(
+            &self.client,
+            url,
+            &self.attachment_extensions,
+            &content_body_sel.to_string(),
+            self.keep_complex_tables,
+        )
+    }
+
     fn generate_key(url: &str) -> String {
         let mut hasher = Sha256::new();
         hasher.update(url.as_bytes());
