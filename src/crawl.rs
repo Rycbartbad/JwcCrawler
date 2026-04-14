@@ -403,8 +403,8 @@ fn get_pretty_text_with_complex_tables(element: ElementRef, base_url: &Url) -> S
     let markdown = clean_markdown(&fix_markdown_table_separator(&result));
 
     let mut result = markdown;
-    for (placeholder, cleaned_table_html) in table_replacements {
-        result = result.replace(&placeholder, &cleaned_table_html);
+    for (placeholder, table_html) in &table_replacements {
+        result = result.replace(placeholder, table_html);
     }
 
     result
@@ -435,7 +435,7 @@ fn replace_complex_tables_with_placeholders(
 
         if has_complex_cell {
             let table_html = table.html();
-            let placeholder = format!("__TABLE_PLACEHOLDER_{}__", placeholder_index);
+            let placeholder = format!("HTMLTABLEPLACEHOLDER{}", placeholder_index);
             let cleaned_table = clean_html_table(&table_html);
             replacements.push((placeholder.clone(), cleaned_table));
 
@@ -448,13 +448,17 @@ fn replace_complex_tables_with_placeholders(
 }
 
 fn clean_html_table(html: &str) -> String {
+    // 删除 img 标签（图标）
+    let re_img = Regex::new(r"<img[^>]*>").unwrap();
+    let result = re_img.replace_all(html, "");
+
     let allowed_attrs = [
         "rowspan", "colspan", "valign", "align", "href", "src", "alt", "title", "width", "height",
     ];
 
     let re_attr = Regex::new(r#"(\w+)=["'][^"']*["']"#).unwrap();
 
-    let result = re_attr.replace_all(html, |caps: &regex::Captures| {
+    let result = re_attr.replace_all(&result, |caps: &regex::Captures| {
         let attr_name = &caps[1];
         if allowed_attrs.contains(&attr_name) {
             caps[0].to_string()
