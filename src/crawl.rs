@@ -49,6 +49,7 @@ pub struct Crawler {
     config: SiteConfig,
     client: Client,
     attachment_extensions: Vec<String>,
+    keep_complex_tables: bool,
 }
 
 #[derive(Clone)]
@@ -82,6 +83,7 @@ impl DataSource for Crawler {
         let categories = &self.config.categories;
         let extensions = &self.attachment_extensions;
         let selectors = &self.config.selectors;
+        let keep_complex_tables = self.keep_complex_tables;
         let mut end_reached_map: HashMap<&Category, bool> = HashMap::new();
         let mut page_map: HashMap<&Category, i32> = HashMap::new();
         for category in categories {
@@ -101,6 +103,7 @@ impl DataSource for Crawler {
                     current_page,
                     date_after,
                     with_contents_only,
+                    keep_complex_tables,
                 )?;
 
                 if status.news_items.is_empty() {
@@ -133,7 +136,12 @@ impl Crawler {
                 .iter()
                 .map(|x| x.to_string())
                 .collect(),
+            keep_complex_tables: false,
         })
+    }
+
+    pub fn set_keep_complex_tables(&mut self, value: bool) {
+        self.keep_complex_tables = value;
     }
 
     fn generate_key(url: &str) -> String {
@@ -155,6 +163,7 @@ impl Crawler {
         page: i32,
         date_after: Option<NaiveDate>,
         with_contents_only: bool,
+        keep_complex_tables: bool,
     ) -> Result<FetchStatus, Box<dyn Error>> {
         let final_path = if page == 1 {
             &category.path
@@ -215,6 +224,7 @@ impl Crawler {
                         &detail_url,
                         attachment_extensions,
                         &selection_config.content_body,
+                        keep_complex_tables,
                     )
                     .ok();
                 }
@@ -260,6 +270,7 @@ impl Crawler {
         url: &str,
         extensions: &[String],
         content_body_sel: &String, // Content Body selection string, e.g. div.Article_Content
+        keep_complex_tables: bool,
     ) -> Result<Content, Box<dyn Error>> {
         let base_url = Url::parse(url)?;
 
@@ -269,7 +280,11 @@ impl Crawler {
         let content_sel = Selector::parse(content_body_sel).unwrap();
 
         if let Some(content_element) = document.select(&content_sel).next() {
-            let plain_text = get_pretty_text(content_element, &base_url);
+            let plain_text = if keep_complex_tables {
+                get_pretty_text_with_complex_tables(content_element, &base_url)
+            } else {
+                get_pretty_text(content_element, &base_url)
+            };
             let mut attachment_urls = Vec::new();
             let all_elements_sel = Selector::parse("*").unwrap();
 
@@ -339,6 +354,109 @@ pub(crate) fn get_pretty_text(element: ElementRef, base_url: &Url) -> String {
         }
     }
     clean_markdown(&fix_markdown_table_separator(&result))
+}
+
+fn get_pretty_text_with_complex_tables(element: ElementRef, base_url: &Url) -> String {
+    let html_fragment = element.html();
+    let pre_cleaned_html = html_fragment.replace("&nbsp;", " ").replace("&#160;", " ");
+
+    let (processed_html, table_replacements) =
+        replace_complex_tables_with_placeholders(&pre_cleaned_html);
+
+    let converter = HtmlToMarkdown::builder()
+        .skip_tags(vec!["script", "style", "colgroup", "col"])
+        .build();
+
+    let raw_markdown = converter.convert(&processed_html).unwrap_or_default();
+    let cleaned = fix_markdown_links(&raw_markdown, base_url).replace("||", "|\n|");
+    let re_multi_spaces = Regex::new(r"[ \t]{2,}").unwrap();
+
+    let lines: Vec<String> = cleaned
+        .lines()
+        .map(|line| {
+            let t = line.trim().replace("&nbsp;", " ").replace("\u{a0}", " ");
+            re_multi_spaces.replace_all(&t, " ").to_string()
+        })
+        .filter(|line| !line.is_empty())
+        .collect();
+    let mut result = String::new();
+    for i in 0..lines.len() {
+        result.push_str(&lines[i]);
+        if i + 1 < lines.len() {
+            if lines[i].starts_with('|') && lines[i + 1].starts_with('|') {
+                result.push('\n');
+            } else {
+                result.push_str("\n\n");
+            }
+        }
+    }
+    let markdown = clean_markdown(&fix_markdown_table_separator(&result));
+
+    let mut result = markdown;
+    for (placeholder, cleaned_table_html) in table_replacements {
+        result = result.replace(&placeholder, &cleaned_table_html);
+    }
+
+    result
+}
+
+fn replace_complex_tables_with_placeholders(
+    html: &str,
+) -> (String, Vec<(String, String)>) {
+    let document = Html::parse_document(html);
+    let mut replacements: Vec<(String, String)> = Vec::new();
+    let mut placeholder_index = 0;
+
+
+    let table_sel = Selector::parse("table").unwrap();
+    let td_th_sel = Selector::parse("td, th").unwrap();
+
+    let mut work_html = html.to_string();
+
+    for table in document.select(&table_sel) {
+        let mut has_complex_cell = false;
+        for cell in table.select(&td_th_sel) {
+            if cell.value().attr("rowspan").is_some() || cell.value().attr("colspan").is_some()
+            {
+                has_complex_cell = true;
+                break;
+            }
+        }
+
+        if has_complex_cell {
+            let table_html = table.html();
+            let placeholder = format!("__TABLE_PLACEHOLDER_{}__", placeholder_index);
+            let cleaned_table = clean_html_table(&table_html);
+            replacements.push((placeholder.clone(), cleaned_table));
+
+            work_html = work_html.replace(&table_html, &placeholder);
+            placeholder_index += 1;
+        }
+    }
+
+    (work_html, replacements)
+}
+
+fn clean_html_table(html: &str) -> String {
+    let allowed_attrs = [
+        "rowspan", "colspan", "valign", "align", "href", "src", "alt", "title", "width", "height",
+    ];
+
+    let re_attr = Regex::new(r#"(\w+)=["'][^"']*["']"#).unwrap();
+
+    let result = re_attr.replace_all(html, |caps: &regex::Captures| {
+        let attr_name = &caps[1];
+        if allowed_attrs.contains(&attr_name) {
+            caps[0].to_string()
+        } else {
+            String::new()
+        }
+    });
+
+    let re_empty_attrs = Regex::new(r#"\s+\w+=""|\w+=""\s+"#).unwrap();
+    let result = re_empty_attrs.replace_all(&result, " ").to_string();
+
+    result.trim().to_string()
 }
 
 fn fix_markdown_links(md: &str, base_url: &Url) -> String {

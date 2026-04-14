@@ -31,6 +31,13 @@ pub struct Args {
     date: Option<String>,
     #[arg(long, help = "Only fetch news with contents")]
     with_contents_only: bool,
+    #[arg(
+        long,
+        help = "Keep complex tables (with rowspan/colspan) as HTML instead of converting to Markdown"
+    )]
+    keep_complex_tables: bool,
+    #[arg(long, help = "Fetch a single URL instead of crawling data source")]
+    url: Option<String>,
 }
 
 type CrawlerFactory = fn() -> Result<Crawler, Box<dyn Error>>;
@@ -52,7 +59,8 @@ pub fn run(args: Args) -> Result<(), Box<dyn Error>> {
                 .join(", ")
         )
     })?;
-    let crawler = factory()?;
+    let mut crawler = factory()?;
+    crawler.set_keep_complex_tables(args.keep_complex_tables);
     let date = args
         .date
         .map(|s| NaiveDate::parse_from_str(&s, "%Y-%m-%d"))
