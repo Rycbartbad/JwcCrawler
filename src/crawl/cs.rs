@@ -1,7 +1,7 @@
-use crate::crawl::{Category, Crawler, SelectionConfig, SiteConfig};
+use crate::crawl::{Category, Crawler, CrawlerConfig, SelectionConfig, SiteConfig};
 use std::error::Error;
 
-pub fn get_cs() -> Result<Crawler, Box<dyn Error>> {
+pub fn get_cs(crawler_config: CrawlerConfig) -> Result<Crawler, Box<dyn Error>> {
     let base_url = "https://cs.seu.edu.cn".to_string();
     let categories = vec![
         Category {
@@ -30,5 +30,5 @@ pub fn get_cs() -> Result<Crawler, Box<dyn Error>> {
             all_pages: "em.all_pages".to_string(),
         },
     };
-    Crawler::new(config)
+    Crawler::new(config, crawler_config)
 }

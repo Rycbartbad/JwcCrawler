@@ -1,7 +1,7 @@
-use crate::crawl::{Category, Crawler, SelectionConfig, SiteConfig};
+use crate::crawl::{Category, Crawler, CrawlerConfig, SelectionConfig, SiteConfig};
 use std::error::Error;
 
-pub fn get_jwc() -> Result<Crawler, Box<dyn Error>> {
+pub fn get_jwc(crawler_config: CrawlerConfig) -> Result<Crawler, Box<dyn Error>> {
     let base_url = "https://jwc.seu.edu.cn".to_string();
     let categories = vec![
         Category {
@@ -47,7 +47,7 @@ pub fn get_jwc() -> Result<Crawler, Box<dyn Error>> {
             all_pages: "em.all_pages".to_string(),
         },
     };
-    Crawler::new(config)
+    Crawler::new(config, crawler_config)
 }
 
 #[cfg(test)]
@@ -55,12 +55,16 @@ mod tests {
     use super::*;
     #[test]
     fn test_fetch_summary() {
-        let jwc = get_jwc().unwrap();
+        let crawler_config = CrawlerConfig {
+            keep_complex_tables: true
+        };
+        let jwc = get_jwc(crawler_config).unwrap();
         let s = Crawler::fetch_content(
             &jwc.client,
             "https://jwc.seu.edu.cn/2026/0126/c21676a553741/page.htm",
             &[".pdf", ".docx", ".doc", ".xlsx", ".xls", ".zip", ".rar"].map(|s| s.to_string()),
             &"div.Article_Content".to_string(),
+            true
         )
         .unwrap();
         println!("{s:?}");

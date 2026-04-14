@@ -1,4 +1,4 @@
-use crate::crawl::Crawler;
+use crate::crawl::{Crawler, CrawlerConfig};
 use crate::crawl::cs::get_cs;
 use crate::crawl::jwc::get_jwc;
 use crate::crawl::xsxy::get_xsxy;
@@ -11,6 +11,7 @@ use std::fs;
 
 mod crawl;
 pub mod models;
+mod markdown;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -40,13 +41,15 @@ pub struct Args {
     url: Option<String>,
 }
 
-type CrawlerFactory = fn() -> Result<Crawler, Box<dyn Error>>;
+type CrawlerFactory = fn(CrawlerConfig) -> Result<Crawler, Box<dyn Error>>;
 
 pub fn run(args: Args) -> Result<(), Box<dyn Error>> {
-    // --url，直接爬取单个页面，方便进行测试
+    let crawler_config = CrawlerConfig {
+        keep_complex_tables: args.keep_complex_tables
+    };
+    
     if let Some(url) = args.url {
-        let mut crawler = get_jwc()?;
-        crawler.set_keep_complex_tables(args.keep_complex_tables);
+        let crawler = get_jwc(crawler_config)?;
         let content = crawler.fetch_url(&url, "div.Article_Content")?;
         let s = serde_json::to_string_pretty(&content)?;
         fs::write(args.out, s)?;
@@ -69,8 +72,7 @@ pub fn run(args: Args) -> Result<(), Box<dyn Error>> {
                 .join(", ")
         )
     })?;
-    let mut crawler = factory()?;
-    crawler.set_keep_complex_tables(args.keep_complex_tables);
+    let crawler = factory(crawler_config)?;
     let date = args
         .date
         .map(|s| NaiveDate::parse_from_str(&s, "%Y-%m-%d"))
