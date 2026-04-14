@@ -338,7 +338,7 @@ pub(crate) fn get_pretty_text(element: ElementRef, base_url: &Url) -> String {
             }
         }
     }
-    fix_markdown_table_separator(&result)
+    clean_markdown(&fix_markdown_table_separator(&result))
 }
 
 fn fix_markdown_links(md: &str, base_url: &Url) -> String {
@@ -385,4 +385,66 @@ fn fix_markdown_table_separator(md: &str) -> String {
         }
     }
     lines.join("\n")
+}
+
+fn clean_markdown(markdown: &str) -> String {
+    let re_extra_asterisks = Regex::new(r"\*{4}").unwrap();
+
+    let result = remove_empty_bold_pairs(markdown);
+    let result = re_extra_asterisks.replace_all(&result, "");
+
+    result.to_string()
+}
+
+fn is_punctuation(c: char) -> bool {
+    c.is_ascii_punctuation()
+        || matches!(c, '，' | '。' | '！' | '？' | '；' | '：' | '"' | '\'' | '（' | '）' | '【' | '】' | '《' | '》' | '…' | '、')
+}
+
+fn remove_empty_bold_pairs(md: &str) -> String {
+    let chars: Vec<char> = md.chars().collect();
+    let mut result = String::new();
+    let mut i = 0;
+
+    while i < chars.len() {
+        if i + 1 < chars.len() && chars[i] == '*' && chars[i + 1] == '*' {
+            i += 2;
+
+            let mut temp = String::new();
+            let mut found_end = false;
+
+            while i + 1 < chars.len() {
+                if chars[i] == '*' && chars[i + 1] == '*' {
+                    found_end = true;
+                    i += 2; 
+                    break;
+                }
+                temp.push(chars[i]);
+                i += 1;
+            }
+
+            if found_end && temp.chars().all(|c| c.is_whitespace()) {
+                continue;
+            } else if found_end {
+                result.push_str("**");
+                result.push_str(&temp);
+                result.push_str("**");
+
+                if i < chars.len() {
+                    let next_char = chars[i];
+                    if !next_char.is_whitespace() && !is_punctuation(next_char) {
+                        result.push(' ');
+                    }
+                }
+            } else {
+                result.push_str("**");
+                result.push_str(&temp);
+            }
+        } else {
+            result.push(chars[i]);
+            i += 1;
+        }
+    }
+
+    result
 }
