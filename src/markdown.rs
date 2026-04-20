@@ -144,22 +144,22 @@ fn fix_markdown_table_separator(md: &str) -> String {
         return md.to_string();
     }
 
-    if let Some(header_idx) = lines.iter().position(|l| l.trim().starts_with('|')) {
+    let header_indices: Vec<usize> = lines
+    .windows(2)
+    .enumerate()
+    .filter(|(_, pair)| ! pair[0].trim().is_empty() && pair[1].trim().starts_with('|') && ! pair[1].trim().starts_with("|--"))
+    .map(|(i, _)| i)
+    .collect();
+    
+    for header_idx in header_indices.into_iter().rev() {  // 逆序处理，避免索引偏移
         let column_count = lines[header_idx].matches('|').count().saturating_sub(1);
-
-        if column_count > 0 {
+        if column_count > 0 && header_idx + 1 < lines.len() 
+            && !lines[header_idx + 1].contains("---") {
             let separator = format!("| {} |", vec!["---"; column_count].join(" | "));
-            let has_sep = if header_idx + 1 < lines.len() {
-                lines[header_idx + 1].contains("---")
-            } else {
-                false
-            };
-
-            if !has_sep {
-                lines.insert(header_idx + 1, separator);
-            }
+            lines.insert(header_idx + 1, separator);
         }
     }
+    
     lines.join("\n")
 }
 
