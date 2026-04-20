@@ -119,8 +119,7 @@ fn clean_html_table(html: &str) -> String {
 
 fn fix_markdown_links(md: &str, base_url: &Url) -> String {
     let re = Regex::new(r"(?P<p>!?\[.*?])\((?P<u>[^ )]+)(?:\s+.*?)?\)").unwrap();
-
-    let cleaned = re
+    re
         .replace_all(md, |caps: &regex::Captures| {
             let prefix = &caps["p"];
             let link = &caps["u"];
@@ -134,8 +133,7 @@ fn fix_markdown_links(md: &str, base_url: &Url) -> String {
                 format!("{}({})", prefix, link)
             }
         })
-        .to_string();
-    cleaned
+        .to_string()
 }
 
 fn fix_markdown_table_separator(md: &str) -> String {
